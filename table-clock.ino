@@ -1,9 +1,26 @@
-// Include the library
+// Include the libraries
 #include <TM1637Display.h>
+#include <WiFi.h>
+#include <NTPClient.h>
+#include <WiFiUdp.h>
 
 // Define the pins
 #define CLK 23
 #define DIO 22
+
+// Define WiFi SSID and password
+const char* WIFI_SSID = "Wokwi-GUEST";
+const char* WIFI_PASSWORD = "";
+
+// Define the timezone
+int timezone = 8;
+
+// Define NTP Client to get time
+WiFiUDP ntpUDP;
+NTPClient timeClient(ntpUDP, "pool.ntp.org", timezone*3600, 60000);
+
+// Variables to read the time
+String formattedTime;
 
 // Create a display object of type TM1637Display
 TM1637Display display = TM1637Display(CLK, DIO);
@@ -28,71 +45,70 @@ const uint8_t celsius[] = {
   SEG_A | SEG_D | SEG_E | SEG_F   // C
 };
 
+// Establish WiFi connection
+void initWiFi() {
+ WiFi.mode(WIFI_STA);    //Set Wi-Fi Mode as station
+ WiFi.begin(WIFI_SSID, WIFI_PASSWORD);   
+ 
+ Serial.print("Connecting to WiFi ..");
+ while (WiFi.status() != WL_CONNECTED) {
+   Serial.print('.');
+   delay(100);
+ }
+ 
+ Serial.println();
+ Serial.println(WiFi.localIP());
+
+ Serial.print("RSSI: ");
+ Serial.print(WiFi.RSSI());
+ Serial.println(" dBm");
+
+ Serial.print("Connected to WiFi successfully at: ");
+ Serial.println(WIFI_SSID);
+}
+
 void setup() {
   // put your setup code here, to run once:
   Serial.begin(115200);
   Serial.println("Hello, ESP32!");
 
+  // Init the WiFi connection
+  initWiFi();
+
   // Set the brightness to 5 (0=dimmest 7=brightest)
 	display.setBrightness(5);
+
+  // Init the time client
+  timeClient.begin();
+  timeClient.forceUpdate();
 }
 
 void loop() {
   // put your main code here, to run repeatedly:
-  // Set all segments ON
-	display.setSegments(allON);
 
-	delay(2000);
-	display.clear();
+  // Get the time
+  formattedTime = timeClient.getFormattedTime(); // in format HH:MM:SS
+  Serial.println(formattedTime);
 
-	// Show counter 0-9
-	int i;
-	for (i = 0; i < 10; i++) {
-		display.showNumberDec(i);
-		delay(50);
-	}
+  // Get substrings indicating hr, min, sec separately
+  String hour_str = formattedTime.substring(0, 2);
+  String minute_str = formattedTime.substring(3, 5);
+  String second_str = formattedTime.substring(6, 8);
 
-	delay(2000);
-	display.clear();
+  // Parse the substrings to integer
+  int hour_int = hour_str.toInt();
+  int minute_int = minute_str.toInt();
+  int second_int = second_str.toInt();
 
-	display.showNumberDec(-12);			// Prints _-12
-	delay(2000);
-	display.clear();
-	
-	display.showNumberDec(-999);		// Prints -999
-	delay(2000);
-	display.clear();
-	
-	display.showNumberDec(31, false);	// Prints __31
-	delay(2000);
-	display.clear();
-	
-	display.showNumberDec(31, true);	// Prints 0031
-	delay(2000);
-	display.clear();
-	
-	display.showNumberDec(14, false, 2, 1);	// Prints _14_
-	delay(2000);
-	display.clear();
-	
-	display.showNumberDec(-5, false, 3, 0);	// Prints _-5_
-	delay(2000);
-	display.clear();
+  // Display the integers into the TM1637
+  display.showNumberDec(minute_int, true, 2, 0);
+  display.showNumberDecEx(second_int, 0b11100000, true, 2, 2);
 
-	// Prints 12:34
-	display.showNumberDecEx(1234, 0b11100000, false, 4, 0);
-
-	delay(2000);
-	display.clear();
-
-	// Prints 15°C
-	int temperature = 15;
-	display.showNumberDec(temperature, false, 2, 0);
-	display.setSegments(celsius, 2, 2);
-
-	delay(2000);
-	display.clear();
-	
-	// Prints dOnE
-	display.setSegments(done);
+  delay(1000);
 }
+
+// References: 
+// [1] https://lastminuteengineers.com/tm1637-arduino-tutorial/
+// [2] https://www.electronicwings.com/esp32/esp32-wi-fi-basics-getting-started
+// [3] https://randomnerdtutorials.com/esp32-ntp-client-date-time-arduino-ide/
+// [4] https://github.com/arduino-libraries/NTPClient
