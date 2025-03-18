@@ -19,6 +19,11 @@ const uint8_t d_letter[] = {
   SEG_B | SEG_C | SEG_D | SEG_E | SEG_G  // d
 };
 
+// Create underscore (_) symbol
+const uint8_t underscore[] = {
+  SEG_D // _
+};
+
 // Create degree celsius symbol
 const uint8_t celsius[] = {
   SEG_A | SEG_B | SEG_F | SEG_G,  // Degree symbol
@@ -74,11 +79,12 @@ void setup() {
     Serial.println("RTC is NOT running, let's set the time!");
     // When time needs to be set on a new device, or after a power loss, the
     // following line sets the RTC to the date & time this sketch was compiled
-    rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
+    // rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
     // This line sets the RTC with an explicit date & time, for example to set
     // January 21, 2014 at 3am you would call:
     //rtc.adjust(DateTime(2014, 1, 21, 3, 0, 0));
   }
+  // rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
 
   // Init the Dallas Temperature
   temperature.begin();
@@ -109,6 +115,7 @@ void displayInfo() {
   if (mode == 0) {
     display.showNumberDecEx(hour_int * 100 + minute_int, 0b01000000, true, 4, 0);
   } else if (mode == 1) {
+    display.setSegments(underscore, 1, 0);
     display.setSegments(d_letter, 1, 1);
     display.showNumberDec(weekday_int, true, 2, 2);
   } else if (mode == 2) {
@@ -168,7 +175,6 @@ void loop() {
     mode += 1;
     if (mode == maxMode) mode = 0;
 
-    display.clear();
     displayInfo();
   }
 }
