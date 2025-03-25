@@ -1,45 +1,30 @@
 // Include the dependencies
-#include <TM1637Display.h>
 #include <OneWire.h>
 #include <DallasTemperature.h>
+#include <Wire.h>
+#include <SPI.h>
 #include "RTClib.h"
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+#include "fonts/NotoSansJP_Regular8pt7b.h"
+#include "fonts/NotoSansJP_Regular5pt7b.h"
+#include "icons/thermometer.h"
 
 // Define the pins
-#define CLK 32
-#define DIO 25
-#define BTN1 27          // Use to turn into setting value mode
-#define BTN2 14          // Use to edit value
 #define ONE_WIRE_BUS 18  // For temperature sensor
 
-// Create a display object of type TM1637Display
-TM1637Display display = TM1637Display(CLK, DIO);
+// Define the constants
+#define SCREEN_WIDTH 128  // OLED display width, in pixels
+#define SCREEN_HEIGHT 64  // OLED display height, in pixels
 
-// Create letter d (lower-case) symbol
-const uint8_t d_letter[] = {
-  SEG_B | SEG_C | SEG_D | SEG_E | SEG_G  // d
-};
-
-// Create underscore (_) symbol
-const uint8_t underscore[] = {
-  SEG_D // _
-};
-
-// Create degree celsius symbol
-const uint8_t celsius[] = {
-  SEG_A | SEG_B | SEG_F | SEG_G,  // Degree symbol
-  SEG_A | SEG_D | SEG_E | SEG_F   // C
-};
-
-// Store button state
-// BTN use pullup => by default is HIGH, when pressed is LOW
-int btn1_prevState = HIGH;
-int btn1_currentState;
-int btn2_prevState = HIGH;
-int btn2_currentState;
+// Declaration for an SSD1306 display connected to I2C (SDA, SCL pins)
+#define OLED_RESET -1  // Reset pin # (or -1 if sharing Arduino reset pin)
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
 // Init a RTC instance
 RTC_DS1307 rtc;
-char daysOfTheWeek[7][12] = { "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday" };
+char daysOfTheWeek[7][4] = { "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat" };
+char months[12][4] = { "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" };
 
 // Setup a oneWire instance to communicate with any OneWire devices
 OneWire oneWire(ONE_WIRE_BUS);
@@ -47,26 +32,130 @@ OneWire oneWire(ONE_WIRE_BUS);
 // Pass our oneWire reference to Dallas Temperature sensor
 DallasTemperature temperature(&oneWire);
 
-// Multiple display modes
-int maxMode = 5;  // maximum number of modes
-int mode = 0;
-// 0 = HH:MM;
-// 1 = _d0x; // Day of the week, d01 = Sunday
-// 2 = DD:MM; // Date and month
-// 3 = YYYY;
-// 4 = DD°C;
+// Variables for tracking of time
+unsigned long currentMillis = 0;
+unsigned long prevUpdateMillis = 0;
+
+char buffer[10];
+
+// Variables for displaying
+int hour_int = 0;
+int minute_int = 0;
+int second_int = 0;
+
+int day_int = 0;
+int month_int = 0;
+int year_int = 0;
+int weekday_int = 0;
+
+const uint8_t degreeSymbol[] PROGMEM = {
+  0x1C,  // ....####  (top row)
+  0x36,  // ...##..## (second row)
+  0x36,  // ...##..## (third row)
+  0x1C,  // ....####  (fourth row)
+  0x00,  // ........  (empty rows)
+  0x00,  // ........  
+  0x00   // ........  
+};
+
+void displayInfo() {
+  // Clear previous display
+  display.clearDisplay();
+
+  // Get the current time from the RTC
+  DateTime now = rtc.now();
+
+  // Get date and time in integers
+  hour_int = now.hour();
+  minute_int = now.minute();
+  second_int = now.second();
+
+  day_int = now.day();
+  month_int = now.month() - 1; // Starting from 0, which is January
+  year_int = now.year();
+  weekday_int = now.dayOfTheWeek();  // Starting from 0, which is Sunday
+
+  // Get the temperature in Celsius
+  temperature.requestTemperatures();
+  float temp_c_float = temperature.getTempCByIndex(0);
+  int temp_c = int(round(temp_c_float));
+
+  //
+  // Display the data into SSD1306
+  //
+
+  // Display hour and minute
+  display.setFont(&NotoSansJP_Regular8pt7b);  // Set custom font
+  display.setTextSize(1);                     // Text size (1 = small, 2 = medium, etc.)
+
+  display.setCursor(6, 16);                   // Position (x, y)
+  sprintf(buffer, "%02d:%02d", hour_int, minute_int);
+  display.print(buffer);  // Print hour and minute in HH:MM format, with leading zero
+
+  // Display second
+  display.setFont(&NotoSansJP_Regular5pt7b);
+  display.setTextSize(1);
+  
+  display.setCursor(48, 20);
+  display.printf("%02d", second_int); // Print second with leading zero
+
+  // Display day of the week
+  display.setCursor(6, 42);
+  display.print(daysOfTheWeek[weekday_int]); // Print day of week (DDD)
+
+  // Display date and month
+  display.setCursor(6, 58);
+  display.printf("%02d", day_int); // Print date with leading zero
+
+  display.setCursor(22, 58);
+  display.print(months[month_int]); // Print month (MMM)
+
+  // Display year
+  display.setCursor(6, 74);
+  display.print(year_int); // Print year (YYYY)
+
+  // Display temperature
+  display.drawBitmap(6, 96, thermometer, 16, 16, WHITE);
+
+  display.setCursor(25, 108);
+  display.printf("%02d", temp_c); // Print temp C with leading zero
+
+  display.drawBitmap(35, 102, degreeSymbol, 8, 8, WHITE); // Degree symbol
+  display.setCursor(43, 108);
+  display.print("C"); // Print letter C
+
+  // Show everything on screen
+  display.display();
+
+  //
+  // The lines below are for debugging
+  //
+
+  // Getting each time field in individual variables
+  // And adding a leading zero when needed;
+  String yearStr = String(now.year(), DEC);
+  String monthStr = (now.month() < 10 ? "0" : "") + String(now.month(), DEC);
+  String dayStr = (now.day() < 10 ? "0" : "") + String(now.day(), DEC);
+  String hourStr = (now.hour() < 10 ? "0" : "") + String(now.hour(), DEC);
+  String minuteStr = (now.minute() < 10 ? "0" : "") + String(now.minute(), DEC);
+  String secondStr = (now.second() < 10 ? "0" : "") + String(now.second(), DEC);
+  String dayOfWeek = daysOfTheWeek[now.dayOfTheWeek()];
+
+  // Complete time string
+  String formattedTime = dayOfWeek + ", " + yearStr + "-" + monthStr + "-" + dayStr + " " + hourStr + ":" + minuteStr + ":" + secondStr;
+
+  // Print the complete formatted time
+  Serial.println(formattedTime);
+
+  // Print the temperature
+  Serial.print(temp_c);
+  Serial.println("°C");
+}
 
 void setup() {
   // put your setup code here, to run once:
   Serial.begin(115200);
   Serial.println("Hello, ESP32!");
-
-  // Init the pin config
-  pinMode(BTN1, INPUT_PULLUP);  // config BTN1 as input pin and enable the internal pull-up resistor
-  pinMode(BTN2, INPUT_PULLUP);  // config BTN2 as input pin and enable the internal pull-up resistor
-
-  // Set the brightness (0=dimmest 7=brightest)
-  display.setBrightness(3);
 
   // Config the RTC
   if (!rtc.begin()) {
@@ -88,92 +177,30 @@ void setup() {
 
   // Init the Dallas Temperature
   temperature.begin();
-}
 
-unsigned long prevRefreshMillis = 0;
-
-void displayInfo() {
-  // Get the current time from the RTC
-  DateTime now = rtc.now();
-
-  // Get date and time in integers
-  int hour_int = now.hour();
-  int minute_int = now.minute();
-  int second_int = now.second();
-
-  int day_int = now.day();
-  int month_int = now.month();
-  int year_int = now.year();
-  int weekday_int = now.dayOfTheWeek() + 1;  // Starting from 1, which is Sunday
-
-  // Get the temperature in Celsius
-  temperature.requestTemperatures();
-  float temp_c_float = temperature.getTempCByIndex(0);
-  int temp_c = int(round(temp_c_float));
-
-  // Display the integers into the TM1637
-  if (mode == 0) {
-    display.showNumberDecEx(hour_int * 100 + minute_int, 0b01000000, true, 4, 0);
-  } else if (mode == 1) {
-    display.setSegments(underscore, 1, 0);
-    display.setSegments(d_letter, 1, 1);
-    display.showNumberDec(weekday_int, true, 2, 2);
-  } else if (mode == 2) {
-    display.showNumberDec(day_int * 100 + month_int, true, 4, 0);
-  } else if (mode == 3) {
-    display.showNumberDec(year_int, true, 4, 0);
-  } else if (mode == 4) {
-    display.showNumberDec(temp_c, false, 2, 0);
-    display.setSegments(celsius, 2, 2);
+  // SSD1306_SWITCHCAPVCC = generate display voltage from 3.3V internally
+  if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {  // default I2C address for SSD1306
+    Serial.println(F("SSD1306 allocation failed"));
+    for (;;)
+      ;  // Don't proceed, loop forever
   }
 
-  // Getting each time field in individual variables
-  // And adding a leading zero when needed;
-  String yearStr = String(now.year(), DEC);
-  String monthStr = (now.month() < 10 ? "0" : "") + String(now.month(), DEC);
-  String dayStr = (now.day() < 10 ? "0" : "") + String(now.day(), DEC);
-  String hourStr = (now.hour() < 10 ? "0" : "") + String(now.hour(), DEC);
-  String minuteStr = (now.minute() < 10 ? "0" : "") + String(now.minute(), DEC);
-  String secondStr = (now.second() < 10 ? "0" : "") + String(now.second(), DEC);
-  String dayOfWeek = daysOfTheWeek[now.dayOfTheWeek()];
+  // Set the displayed content rotated 90deg counter-clockwise
+  display.setRotation(3);
+  display.setTextColor(WHITE);
 
-  // Complete time string
-  String formattedTime = dayOfWeek + ", " + yearStr + "-" + monthStr + "-" + dayStr + " " + hourStr + ":" + minuteStr + ":" + secondStr;
-
-  // Print the complete formatted time
-  Serial.println(formattedTime);
+  // Start displaying
+  displayInfo();
 }
+
 
 void loop() {
-
-  // Read BTN1 state // BTN is for turning among setting modes
-  btn1_currentState = digitalRead(BTN1);
-  if (btn1_prevState == HIGH && btn1_currentState == LOW) {
-    delay(50);  // Debounce delay
-    if (digitalRead(BTN1) == LOW) {
-      Serial.println("BTN1 has been pressed");
-    }
-  }
-  btn1_prevState = btn1_currentState;
-
-  // Read BTN2 state
-  btn2_currentState = digitalRead(BTN2);
-  if (btn2_prevState == HIGH && btn2_currentState == LOW) {
-    delay(50);  // Debounce delay
-    if (digitalRead(BTN2) == LOW) {
-      Serial.println("BTN2 has been pressed");
-    }
-  }
-  btn2_prevState = btn2_currentState;
-
   // Check if a period has passed
-  unsigned long currentMillis = millis();
+  currentMillis = millis();
 
-  // Refresh mode after 5 sec
-  if (currentMillis - prevRefreshMillis >= 5000) {
-    prevRefreshMillis = currentMillis;
-    mode += 1;
-    if (mode == maxMode) mode = 0;
+  // Update every 1 sec
+  if (currentMillis - prevUpdateMillis >= 1000) {
+    prevUpdateMillis = currentMillis;
 
     displayInfo();
   }
@@ -193,3 +220,5 @@ void loop() {
 // [11] https://randomnerdtutorials.com/esp32-ds1307-real-time-clock-rtc-arduino/
 // [12] https://randomnerdtutorials.com/esp32-flash-memory/
 // [13] https://randomnerdtutorials.com/esp32-pinout-reference-gpios/
+// [14] https://randomnerdtutorials.com/esp32-ssd1306-oled-display-arduino-ide/
+// [15] https://simple-circuit.com/arduino-ds1307-ssd1306-oled/
