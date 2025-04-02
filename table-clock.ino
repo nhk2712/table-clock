@@ -6,12 +6,18 @@
 #include "RTClib.h"
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
-#include "fonts/NotoSansJP_Regular8pt7b.h"
-#include "fonts/NotoSansJP_Regular5pt7b.h"
-#include "icons/thermometer.h"
+#include <Adafruit_ST7735.h>
+#include "fonts/NotoSansJP_Regular10pt7b.h"
+#include "fonts/NotoSansJP_Regular25pt7b.h"
+#include "fonts/NotoSansJP_Regular12pt7b.h"
+#include "icons/temperature.h"
 
 // Define the pins
-#define ONE_WIRE_BUS 18  // For temperature sensor
+#define ONE_WIRE_BUS 17  // For temperature sensor
+#define TFT_CS 5
+#define TFT_RST 4
+#define TFT_DC 2
+#define BLK_PWM 33  // For backlight, use PWM to adjust brightness
 
 // Define the constants
 #define SCREEN_WIDTH 128  // OLED display width, in pixels
@@ -20,6 +26,9 @@
 // Declaration for an SSD1306 display connected to I2C (SDA, SCL pins)
 #define OLED_RESET -1  // Reset pin # (or -1 if sharing Arduino reset pin)
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+
+// Create an instance of the ST7735 class
+Adafruit_ST7735 tft = Adafruit_ST7735(TFT_CS, TFT_DC, TFT_RST);
 
 // Init a RTC instance
 RTC_DS1307 rtc;
@@ -35,13 +44,15 @@ DallasTemperature temperature(&oneWire);
 // Variables for tracking of time
 unsigned long currentMillis = 0;
 unsigned long prevUpdateMillis = 0;
-
-char buffer[10];
+unsigned long prevTempCMillis = 0;
 
 // Variables for displaying
 int hour_int = 0;
 int minute_int = 0;
 int second_int = 0;
+
+char hour_buffer[3];
+char minute_buffer[3];
 
 int day_int = 0;
 int month_int = 0;
@@ -55,12 +66,15 @@ const uint8_t degreeSymbol[] PROGMEM = {
   0x1C,  // ....####  (fourth row)
   0x00,  // ........  (empty rows)
   0x00,  // ........  
-  0x00   // ........  
+  0x00   // ........ 
 };
 
-void displayInfo() {
-  // Clear previous display
-  display.clearDisplay();
+// display = SSD1306
+// tft = ST7735
+
+void displayTime() {
+  // Clear the screen with a color
+  tft.fillScreen(ST77XX_BLACK);
 
   // Get the current time from the RTC
   DateTime now = rtc.now();
@@ -71,61 +85,48 @@ void displayInfo() {
   second_int = now.second();
 
   day_int = now.day();
-  month_int = now.month() - 1; // Starting from 0, which is January
+  month_int = now.month() - 1;  // Starting from 0, which is January
   year_int = now.year();
   weekday_int = now.dayOfTheWeek();  // Starting from 0, which is Sunday
 
-  // Get the temperature in Celsius
-  temperature.requestTemperatures();
-  float temp_c_float = temperature.getTempCByIndex(0);
-  int temp_c = int(round(temp_c_float));
-
   //
-  // Display the data into SSD1306
+  // Display the data into ST7735
   //
 
-  // Display hour and minute
-  display.setFont(&NotoSansJP_Regular8pt7b);  // Set custom font
-  display.setTextSize(1);                     // Text size (1 = small, 2 = medium, etc.)
+  // Display hour
+  tft.setFont(&NotoSansJP_Regular25pt7b);
 
-  display.setCursor(6, 16);                   // Position (x, y)
-  sprintf(buffer, "%02d:%02d", hour_int, minute_int);
-  display.print(buffer);  // Print hour and minute in HH:MM format, with leading zero
+  sprintf(hour_buffer, "%02d", hour_int);
+  tft.setCursor(10, 50);
+  tft.print(hour_buffer);
 
-  // Display second
-  display.setFont(&NotoSansJP_Regular5pt7b);
-  display.setTextSize(1);
-  
-  display.setCursor(48, 20);
-  display.printf("%02d", second_int); // Print second with leading zero
+  // Display minute
+  sprintf(minute_buffer, "%02d", minute_int);
+  tft.setCursor(93, 50);
+  tft.print(minute_buffer);
+
+  // Display colon
+  tft.setFont(&NotoSansJP_Regular12pt7b);
+
+  tft.setCursor(73, 40);
+  tft.print(":");
 
   // Display day of the week
-  display.setCursor(6, 42);
-  display.print(daysOfTheWeek[weekday_int]); // Print day of week (DDD)
+  tft.setCursor(10, 99);
+  tft.print(daysOfTheWeek[weekday_int]);
 
-  // Display date and month
-  display.setCursor(6, 58);
-  display.printf("%02d", day_int); // Print date with leading zero
+  // Display date
+  if (day_int < 10){
+    tft.setCursor(75, 99);
+  }
+  else{
+    tft.setCursor(67, 99);
+  }
+  tft.print(day_int);
 
-  display.setCursor(22, 58);
-  display.print(months[month_int]); // Print month (MMM)
-
-  // Display year
-  display.setCursor(6, 74);
-  display.print(year_int); // Print year (YYYY)
-
-  // Display temperature
-  display.drawBitmap(6, 96, thermometer, 16, 16, WHITE);
-
-  display.setCursor(25, 108);
-  display.printf("%02d", temp_c); // Print temp C with leading zero
-
-  display.drawBitmap(35, 102, degreeSymbol, 8, 8, WHITE); // Degree symbol
-  display.setCursor(43, 108);
-  display.print("C"); // Print letter C
-
-  // Show everything on screen
-  display.display();
+  // Display month
+  tft.setCursor(107, 99);
+  tft.print(months[month_int]);
 
   //
   // The lines below are for debugging
@@ -147,9 +148,34 @@ void displayInfo() {
   // Print the complete formatted time
   Serial.println(formattedTime);
 
-  // Print the temperature
-  Serial.print(temp_c);
-  Serial.println("°C");
+}
+
+void displayTempC(){
+  // Clear previous display
+  display.clearDisplay();
+
+  // Get the temperature in Celsius
+  temperature.requestTemperatures();
+  float temp_c_float = temperature.getTempCByIndex(0);
+  int temp_c = int(round(temp_c_float));
+
+  //
+  // Display the data into SSD1306
+  //
+
+  // Display temperature
+  display.drawBitmap(22, 11, temperature_bitmap, 24, 24, WHITE);
+
+  display.setFont(&NotoSansJP_Regular10pt7b);
+  display.setCursor(20, 64);
+  display.printf("%02d", temp_c);  // Print temp C with leading zero
+
+  display.drawBitmap(22, 80, degreeSymbol, 8, 8, WHITE);  // Degree symbol
+  display.setCursor(33, 95);
+  display.print("C");  // Print letter C
+
+  // Show everything on screen
+  display.display();
 }
 
 void setup() {
@@ -185,12 +211,20 @@ void setup() {
       ;  // Don't proceed, loop forever
   }
 
-  // Set the displayed content rotated 90deg counter-clockwise
-  display.setRotation(3);
+  // Set the displayed content rotated 90deg clockwise
+  display.setRotation(1);
   display.setTextColor(WHITE);
+  display.setTextSize(1);
+
+  // Initialize the display for ST7735
+  tft.initR(INITR_BLACKTAB);  // For 1.8" displays
+  tft.setRotation(1);         // Adjust orientation to 90deg clockwise
+  tft.setTextColor(ST77XX_WHITE);
+  tft.setTextSize(1);
 
   // Start displaying
-  displayInfo();
+  displayTime();
+  displayTempC();
 }
 
 
@@ -198,11 +232,18 @@ void loop() {
   // Check if a period has passed
   currentMillis = millis();
 
-  // Update every 1 sec
-  if (currentMillis - prevUpdateMillis >= 1000) {
+  // Update time every 1 min
+  if (currentMillis - prevUpdateMillis >= 60000) {
     prevUpdateMillis = currentMillis;
 
-    displayInfo();
+    displayTime();
+  }
+
+  // Update TempC every 1 sec
+  if (currentMillis - prevTempCMillis >= 1000) {
+    prevTempCMillis = currentMillis;
+
+    displayTempC();
   }
 }
 
@@ -222,3 +263,4 @@ void loop() {
 // [13] https://randomnerdtutorials.com/esp32-pinout-reference-gpios/
 // [14] https://randomnerdtutorials.com/esp32-ssd1306-oled-display-arduino-ide/
 // [15] https://simple-circuit.com/arduino-ds1307-ssd1306-oled/
+// [16] https://www.teachmemicro.com/using-the-1-77-st7735-tft-lcd-with-esp32/
