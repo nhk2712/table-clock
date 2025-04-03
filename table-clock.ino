@@ -222,6 +222,11 @@ void setup() {
   tft.setTextColor(ST77XX_WHITE);
   tft.setTextSize(1);
 
+  // Set brightness for ST7735
+  ledcAttachPin(BLK_PWM, 1); // Attach pin to PWM channel 1
+  ledcSetup(1, 5000, 8);  // 5kHz frequency, 8-bit resolution
+  ledcWrite(1, 128);  // Set brightness (0-255, 128 = 50%)
+
   // Start displaying
   displayTime();
   displayTempC();
