@@ -89,6 +89,13 @@ void displayTime() {
   year_int = now.year();
   weekday_int = now.dayOfTheWeek();  // Starting from 0, which is Sunday
 
+  if (hour_int == 22 && minute_int == 30){ // Dim at 22:30 pm
+    ledcWrite(1, 25);  // Set brightness (0-255, 25 = 10%)
+  }
+  else if (hour_int == 6 && minute_int == 0){ // Bright up at 6:00 am
+    ledcWrite(1, 128);  // Set brightness (0-255, 128 = 50%)
+  }
+
   //
   // Display the data into ST7735
   //
